@@ -1,6 +1,8 @@
 mod toast;
 
-use seahorse::{ActionError, ActionResult, App, Context, Flag, FlagType};
+use toast::*;
+
+use seahorse::{error::FlagError, ActionError, ActionResult, App, Context, Flag, FlagType};
 
 use std::env;
 use std::process::exit;
@@ -15,6 +17,11 @@ fn main() {
             Flag::new("app-id", FlagType::String)
                 .description("The App ID to use for the notification")
                 .alias("a"),
+        )
+        .flag(
+            Flag::new("duration", FlagType::String)
+                .description("The duration to show the notification. choose from 'short' or 'long'")
+                .alias("d"),
         )
         .action_with_result(do_action);
 
@@ -34,16 +41,42 @@ fn do_action(c: &Context) -> ActionResult {
         });
     }
 
-    let app_id = if let Ok(app_id) = c.string_flag("app-id") {
-        app_id
-    } else {
-        "wnotify".to_string()
-    };
+    macro_rules! flag {
+        ($name:expr) => {
+            match c.string_flag($name) {
+                Ok(value) => Some(value),
+                Err(e) => match e {
+                    FlagError::NotFound => None,
+                    _ => {
+                        return Err(ActionError {
+                            message: format!("{e}"),
+                        })
+                    }
+                },
+            }
+        };
+    }
 
     let text1 = &c.args[0];
-    let text2 = c.args.get(1).map(|s| s.as_str());
+    let app_id = flag!("app-id").unwrap_or("wnotify".to_string());
+    let mut toast = toast::Toast::new(&app_id, text1);
 
-    let toast = toast::Toast::new(&app_id, text1, text2);
+    if let Some(text2) = c.args.get(1) {
+        toast.text2(text2);
+    }
+
+    if let Some(duration) = flag!("duration") {
+        toast.duration(match duration.as_str() {
+            "short" => Duration::Short,
+            "long" => Duration::Long,
+            _ => {
+                return Err(ActionError {
+                    message: format!("Invalid duration: {}", duration),
+                })
+            }
+        })
+    }
+
     toast.notify();
 
     Ok(())
